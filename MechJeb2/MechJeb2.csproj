@@ -54,6 +54,8 @@
         <Compile Include="CelestialBodyExtensions.cs"/>
         <Compile Include="CompatibilityChecker.cs"/>
         <Compile Include="ComputerModule.cs"/>
+        <Compile Include="SolidBoosterSeparation.cs"/>
+        <Compile Include="SolidBoosterSeparationFlightAdapter.cs"/>
         <Compile Include="DisplayModule.cs"/>
         <Compile Include="FlyingSim\SimulatedParachute.cs"/>
         <Compile Include="FlyingSim\SimulatedPart.cs"/>

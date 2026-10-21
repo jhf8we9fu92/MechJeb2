@@ -56,6 +56,15 @@
         <Compile Include="AssertionExtensions.cs"/>
         <Compile Include="ControlTests\PIDLoopTests.cs"/>
         <Compile Include="FunctionsTests.cs"/>
+        <Compile Include="StagingTests\SolidBoosterSeparationTests.cs"/>
+        <Compile Include="StagingTests\SolidBoosterSeparationFlightTests.cs"/>
+        <Compile Include="StagingTests\KspStagingEnvironment.cs"/>
+        <Compile Include="..\MechJeb2\SolidBoosterSeparationFlightAdapter.cs">
+            <Link>StagingTests\SolidBoosterSeparationFlightAdapter.cs</Link>
+        </Compile>
+        <Compile Include="..\MechJeb2\SolidBoosterSeparation.cs">
+            <Link>StagingTests\SolidBoosterSeparation.cs</Link>
+        </Compile>
         <Compile Include="LambertTests\GoodingTests.cs"/>
         <Compile Include="ManeuversTests\ChangeOrbitalElementTests.cs"/>
         <Compile Include="ManeuversTests\TwoImpulseTransferTests.cs"/>

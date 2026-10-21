@@ -361,6 +361,7 @@ namespace MuMech
             Core.Staging.HotStaging                    = true;
             Core.Staging.HotStagingLeadTime.Val        = 1.0;
             Core.Staging.DropSolids                    = true;
+            Core.Staging.DropSolidsMode                = MechJebModuleStagingController.SolidDropMode.ACCELERATION_GAIN;
             Core.Staging.DropSolidsLeadTime.Val        = 1.0;
         }
 

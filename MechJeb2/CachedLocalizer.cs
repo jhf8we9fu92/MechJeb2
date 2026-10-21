@@ -88,6 +88,9 @@ namespace MuMech
         public string MechJebAscentHotStaging, MechJebAscentDropSolids, MechJebAscentLeadTime;
 
         [NonSerialized]
+        public string MechJebAscentDropSolidsAcceleration, MechJebAscentDropSolidsTime;
+
+        [NonSerialized]
         public string MechJebAscentCheckbox2,
             MechJebAscentCheckbox3,
             MechJebAscentCheckbox4,
@@ -265,6 +268,8 @@ namespace MuMech
             MechJebAscentMsg3       = Localizer.Format("#MechJeb_Ascent_msg3");
             MechJebAscentHotStaging = Localizer.Format("#MechJeb_Ascent_hotStaging");
             MechJebAscentDropSolids = Localizer.Format("#MechJeb_Ascent_dropSolids");
+            MechJebAscentDropSolidsAcceleration = Localizer.Format("#MechJeb_Ascent_dropSolidsAcceleration");
+            MechJebAscentDropSolidsTime = Localizer.Format("#MechJeb_Ascent_dropSolidsTime");
             MechJebAscentLeadTime   = Localizer.Format("#MechJeb_Ascent_leadTime");
 
             MechJebInfoItemsUnlimitedText = Localizer.Format("#MechJeb_InfoItems_UnlimitedText");

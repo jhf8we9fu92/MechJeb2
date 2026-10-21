@@ -48,6 +48,11 @@ namespace MuMech
         [Persistent(pass = (int)(Pass.TYPE | Pass.GLOBAL))]
         public bool DropSolids;
 
+        public enum SolidDropMode { ACCELERATION_GAIN, REMAINING_TIME }
+
+        [Persistent(pass = (int)(Pass.TYPE | Pass.GLOBAL))]
+        public SolidDropMode DropSolidsMode = SolidDropMode.ACCELERATION_GAIN;
+
         [Persistent(pass = (int)(Pass.TYPE | Pass.GLOBAL))]
         public readonly EditableDouble DropSolidsLeadTime = 1.0;
 
@@ -88,6 +93,7 @@ namespace MuMech
         private readonly Dictionary<int, bool>   _hasFairingCache                 = new Dictionary<int, bool>(16);
         private          MechJebModuleStageStats _stats    => Core.GetComputerModule<MechJebModuleStageStats>();
         private          List<FuelStats>         _vacStats => _stats.VacStats;
+        private readonly SolidBoosterSeparationFlightAdapter _solidBoosterSeparation = new SolidBoosterSeparationFlightAdapter();
 
         private enum RemoteStagingState
         {
@@ -109,6 +115,7 @@ namespace MuMech
 
         private void RegenerateCaches()
         {
+            _solidBoosterSeparation.Reset();
             ClearCaches();
             BuildEnginesCache(_allModuleEngines);
             BuildDecouplersCache(_allDecouplers);
@@ -174,7 +181,11 @@ namespace MuMech
 
         protected override void OnModuleEnabled() => _autoStageModuleLimit.Clear();
 
-        protected override void OnModuleDisabled() => AutostagingOnce = false;
+        protected override void OnModuleDisabled()
+        {
+            AutostagingOnce = false;
+            _solidBoosterSeparation.Reset();
+        }
 
         private readonly string _sFairingMinDynamicPressure = $"  {CachedLocalizer.Instance.MechJebAscentLabel39} <";
         private readonly string _sFairingMinAltitude        = $"  {CachedLocalizer.Instance.MechJebAscentLabel40} >";
@@ -187,6 +198,12 @@ namespace MuMech
             $"{CachedLocalizer.Instance.MechJebAscentDropSolids} {CachedLocalizer.Instance.MechJebAscentLeadTime}";
 
         private readonly string _sLeadTime = $"{CachedLocalizer.Instance.MechJebAscentLeadTime}: ";
+
+        private readonly string[] _solidDropModes =
+        {
+            CachedLocalizer.Instance.MechJebAscentDropSolidsAcceleration,
+            CachedLocalizer.Instance.MechJebAscentDropSolidsTime
+        };
 
         [GeneralInfoItem("#MechJeb_AutostagingSettings", InfoItem.Category.Misc)] //Autostaging settings
         public void AutostageSettingsInfoItem()
@@ -216,11 +233,31 @@ namespace MuMech
             GuiUtils.SimpleTextBox(_sLeadTime, HotStagingLeadTime, "s", 35); //"lead time"
             GUILayout.EndHorizontal();
 
-            GUILayout.BeginHorizontal();
+            bool previousDropSolids = DropSolids;
+            SolidDropMode previousDropMode = DropSolidsMode;
             DropSolids = GUILayout.Toggle(DropSolids, CachedLocalizer.Instance.MechJebAscentDropSolids); //"Drop solids early"
-            GUILayout.FlexibleSpace();
-            GuiUtils.SimpleTextBox(_sLeadTime, DropSolidsLeadTime, "s", 35); //"lead time"
-            GUILayout.EndHorizontal();
+            if (DropSolids)
+            {
+                int mode = DropSolidsMode == SolidDropMode.REMAINING_TIME ? 1 : 0;
+                DropSolidsMode = (SolidDropMode)GuiUtils.ArrowSelector(
+                    mode
+                    , _solidDropModes.Length
+                    , _solidDropModes[mode]);
+                if (DropSolidsMode == SolidDropMode.REMAINING_TIME)
+                {
+                    GuiUtils.SimpleTextBox(
+                        _sLeadTime
+                        , DropSolidsLeadTime
+                        , "s"
+                        , 35); //"lead time"
+                }
+            }
+
+            if (DropSolids != previousDropSolids || DropSolidsMode != previousDropMode)
+            {
+                _solidBoosterSeparation.Reset();
+                _countingDown = false;
+            }
 
             GUILayout.EndVertical();
         }
@@ -291,10 +328,24 @@ namespace MuMech
             UpdateActiveModuleEngines(_allModuleEngines);
             UpdateBurnedResources();
 
+            if (DropSolids && DropSolidsMode == SolidDropMode.ACCELERATION_GAIN)
+            {
+                _solidBoosterSeparation.Update(
+                    Vessel.parts
+                    , _allModuleEngines
+                    , Vessel.currentStage - 1
+                    , VesselState.time
+                    , VesselState.forward);
+            }
+            else _solidBoosterSeparation.Reset();
+
             // don't decouple active or idle engines or tanks
             if (InverseStageDecouplesActiveOrIdleEngineOrTank(Vessel.currentStage - 1, _burnedResources, _activeModuleEngines) &&
                 !InverseStageReleasesClamps(Vessel.currentStage - 1))
+            {
+                if (DropSolids && DropSolidsMode == SolidDropMode.ACCELERATION_GAIN) _countingDown = false;
                 return;
+            }
 
             // prevent staging if we have unstable ullage and we have RCS
             if (InverseStageHasUnstableEngines(Vessel.currentStage - 1) && Core.Thrust.AutoRCSUllaging && Vessel.hasEnabledRCSModules() &&
@@ -396,6 +447,7 @@ namespace MuMech
             }
 
             _countingDown = false;
+            _solidBoosterSeparation.Reset();
 
             if (AutostagingOnce)
                 Users.Clear();
@@ -510,10 +562,18 @@ namespace MuMech
             _activeModuleEngines.Slinq().SelectMany(eng => eng.propellants.Slinq()).Select(prop => prop.id).AddTo(_burnedResources);
         }
 
-        // detect if this part is an SRB, will be dropped in the next stage, and we are below the enabled dropSolidsLeadTime
-        private bool IsBurnedOutSrbDecoupledInNextStage(Part p) =>
-            DropSolids && p.IsThrottleLockedEngine() && LastNonZeroDVStageBurnTime() < DropSolidsLeadTime &&
-            p.IsDecoupledInStage(Vessel.currentStage - 1);
+        private bool CanDropSolidEarly(Part p)
+        {
+            if (!DropSolids) return false;
+
+            if (DropSolidsMode == SolidDropMode.ACCELERATION_GAIN) return _solidBoosterSeparation.CanDrop(p);
+
+            // Preserve the original estimated-burn-time mode and its lead-time setting.
+            return DropSolidsMode == SolidDropMode.REMAINING_TIME
+                && p.IsThrottleLockedEngine()
+                && LastNonZeroDVStageBurnTime() < DropSolidsLeadTime
+                && p.IsDecoupledInStage(Vessel.currentStage - 1);
+        }
 
         //detect if a part is above an active or idle engine in the part tree
         private bool HasActiveOrIdleEngineOrTankDescendant(Part p, List<int> tankResources, List<ModuleEngines> activeModuleEngines)
@@ -521,13 +581,22 @@ namespace MuMech
             if (p is null)
                 return false;
 
-            if (!p.IsSepratron() && !IsBurnedOutSrbDecoupledInNextStage(p))
+            bool sepratron = p.IsSepratron();
+            bool dropSolid = !sepratron && CanDropSolidEarly(p);
+            if (
+                !sepratron
+                && !dropSolid
+                && (p.State == PartStates.ACTIVE || p.State == PartStates.IDLE)
+                && p.EngineHasFuel()
+                && !p.IsUnrestartableDeadEngine())
             {
-                if ((p.State == PartStates.ACTIVE || p.State == PartStates.IDLE) && p.EngineHasFuel() && !p.IsUnrestartableDeadEngine())
-                {
-                    return true; // TODO: properly check if ModuleEngines is active
-                }
+                return true; // TODO: properly check if ModuleEngines is active
+            }
 
+            // Acceleration mode exempts only the solid engines. Resources feeding
+            // retained engines must remain protected, even on the SRB engine part.
+            if (!sepratron && (!dropSolid || DropSolidsMode == SolidDropMode.ACCELERATION_GAIN))
+            {
                 foreach (ModuleEngines engine in activeModuleEngines)
                 {
                     foreach (Propellant propellant in engine.propellants)
